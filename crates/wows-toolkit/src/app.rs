@@ -146,6 +146,8 @@ pub struct WowsToolkitApp {
     #[serde(skip)]
     checked_for_updates: bool,
     #[serde(skip)]
+    manual_update_requested: bool,
+    #[serde(skip)]
     update_window_open: bool,
     #[serde(skip)]
     panic_window_open: bool,
@@ -225,6 +227,7 @@ impl Default for WowsToolkitApp {
     fn default() -> Self {
         Self {
             checked_for_updates: false,
+            manual_update_requested: false,
             update_window_open: false,
             panic_info: None,
             panic_window_open: false,
@@ -409,30 +412,24 @@ impl WowsToolkitApp {
             }
         }
 
-        const DEFAULT_ZOOM_FACTOR: f32 = 1.15;
-
         if !had_saved_state {
-            let mut this: Self = Default::default();
             let detected = sys_locale::get_locale()
                 .and_then(|sys| wt_translations::system_locale_to_wows(&sys).map(String::from))
                 .unwrap_or_else(|| "en".into());
-            this.tab_state.persisted.write().settings.app.locale = Some(detected);
+            state.tab_state.persisted.write().settings.app.locale = Some(detected);
 
             let default_wows_dir = "C:\\Games\\World_of_Warships";
             let default_wows_path = Path::new(default_wows_dir);
             if default_wows_path.exists() {
-                this.tab_state.persisted.write().settings.game.wows_dir = default_wows_dir.to_string();
+                state.tab_state.persisted.write().settings.game.wows_dir = default_wows_dir.to_string();
 
-                let task = this.tab_state.load_game_data(default_wows_path.to_path_buf());
-                update_background_task!(this.tab_state.background_tasks, Some(task));
+                let task = state.tab_state.load_game_data(default_wows_path.to_path_buf());
+                update_background_task!(state.tab_state.background_tasks, Some(task));
             }
-
-            state = this;
         }
 
-        // Restore zoom factor from persisted settings, falling back to default.
-        let zoom = state.tab_state.persisted.read().settings.app.zoom_factor.unwrap_or(DEFAULT_ZOOM_FACTOR);
-        cc.egui_ctx.set_zoom_factor(zoom);
+        // Restore zoom factor from persisted settings.
+        cc.egui_ctx.set_zoom_factor(state.tab_state.persisted.read().settings.app.zoom_factor);
 
         // Apply locale to rust-i18n
         if let Some(locale) = &state.tab_state.persisted.read().settings.app.locale {
@@ -1713,7 +1710,10 @@ impl WowsToolkitApp {
 
         self.tab_state.process_session_stats_reset();
 
-        if !self.checked_for_updates && self.tab_state.persisted.read().settings.app.check_for_updates {
+        if self.manual_update_requested
+            || (!self.checked_for_updates && self.tab_state.persisted.read().settings.app.check_for_updates)
+        {
+            self.manual_update_requested = false;
             self.request_update_checks();
         }
 
@@ -2582,7 +2582,7 @@ impl eframe::App for WowsToolkitApp {
                 if !is_web {
                     ui.menu_button(t!("ui.menu.file"), |ui| {
                         if ui.button(t!("ui.menu.check_updates")).clicked() {
-                            self.checked_for_updates = false;
+                            self.manual_update_requested = true;
                             ui.close_kind(UiKind::Menu);
                         }
                         if ui.button(t!("ui.menu.about")).clicked() {
