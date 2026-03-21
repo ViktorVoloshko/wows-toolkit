@@ -1,7 +1,8 @@
 use std::fs::File;
-use std::io::BufWriter;
+use std::io::{BufWriter, Write};
 
 use bytes::Bytes;
+use image::codecs::png::PngEncoder;
 use rootcause::prelude::*;
 use tracing::error;
 use tracing::info;
@@ -210,6 +211,8 @@ impl VideoEncoder {
         let frame_duration = self.game_duration / total_frames as f32;
         let target_frame = (new_clock.seconds() / frame_duration) as i64;
 
+        let mut writer = BufWriter::new(std::io::stdout().lock());
+
         while self.last_rendered_frame < target_frame {
             self.last_rendered_frame += 1;
 
@@ -227,9 +230,10 @@ impl VideoEncoder {
                 }
                 target.end_frame();
 
-                let png_path =
-                    format!("{}{}{}.png", self.output_path, std::path::MAIN_SEPARATOR, self.last_rendered_frame);
-                if let Err(e) = target.frame().save(&png_path) {
+                // let png_path =
+                //     format!("{}{}{}.png", self.output_path, std::path::MAIN_SEPARATOR, self.last_rendered_frame);
+                let encoder = PngEncoder::new(&mut writer);
+                if let Err(e) = target.frame().write_with_encoder(encoder) {
                     error!(error = %e, "Failed to save frame");
                     return;
                 }
@@ -293,6 +297,9 @@ impl VideoEncoder {
                 }
             }
         }
+        if let Err(e) = writer.flush() {
+            error!(error = %e, "Flushing buffer failed");
+        }
     }
 
     /// Finalize: flush any remaining frames and write the video file.
@@ -321,8 +328,9 @@ impl VideoEncoder {
             }
             target.end_frame();
 
-            let png_path = format!("{}{}{}.png", self.output_path, std::path::MAIN_SEPARATOR, self.last_rendered_frame);
-            if let Err(e) = target.frame().save(&png_path) {
+            // let png_path = format!("{}{}{}.png", self.output_path, std::path::MAIN_SEPARATOR, self.last_rendered_frame);
+            let encoder = PngEncoder::new(std::io::stdout().lock());
+            if let Err(e) = target.frame().write_with_encoder(encoder) {
                 error!(error = %e, "Failed to save frame");
             }
 
